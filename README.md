@@ -54,38 +54,3 @@ The Linux hardware driver requires pigpio's `pigpiod_if2` headers and library.
 It controls the Pi GPIO pins, configures the E22 at startup, and defaults to
 `/dev/serial0`. `E22_UART_DEVICE` can override that serial device. Swapped UART
 operation still uses `E22_SWAPPED_UART=1` and the pigpio daemon.
-
-## Optional Linux container on macOS
-
-To produce a Linux library from macOS, the local Alpine helper image includes
-GCC, CMake, Ninja, Linux headers, GDB, and the pigpio v79 client library.
-
-On a fresh Mac, install and start the Docker runtime once:
-
-```sh
-brew install docker colima
-colima start --runtime docker --vm-type vz --cpu 2 --memory 2 --disk 20
-```
-
-From this repository:
-
-```sh
-git submodule update --init --recursive
-./scripts/alpine build   # compile to build/alpine/libRadioHandler.a
-./scripts/alpine         # open an Alpine bash shell in /work
-```
-
-The helper builds the compiler image automatically, reusing Docker's cache.
-The repo is mounted at `/work`, so edits and build output persist on your Mac.
-Containers are removed when the command or shell exits. To rebuild just the
-image, run `./scripts/alpine image`. Other commands also work, for example
-`./scripts/alpine cc --version`.
-
-The queue, deframer, and CCSDS sources are included in this repository. Extra
-arguments to `./scripts/alpine build` are passed to CMake.
-
-This produces a native Linux static library (ARM64 on Apple Silicon). Alpine
-uses musl libc; deployment to Raspberry Pi OS or another glibc system needs a
-matching target toolchain. Running the radio requires the Pi's GPIO/UART hardware.
-
-Stop the Linux VM with `colima stop`; start it again with `colima start`.
