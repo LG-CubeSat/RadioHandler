@@ -24,6 +24,11 @@ int radio_send_ssdv(const uint8_t *data, size_t length);
    returns payload bytes, 0 = timed out, -1 = error or payload bigger than max_length */
 int radio_receive(uint8_t *buffer, uint16_t max_length);
 
+/* same as radio_receive but copies out the whole checked ccsds packet, headers included,
+   so the caller can see the apid / content type. returns packet bytes, 0 = timed out,
+   -1 = error or packet bigger than max_length */
+int radio_receive_packet(uint8_t *packet, uint16_t max_length);
+
 /* arq: send a recently sent packet again, byte for byte, same sequence count.
    apid is the ccsds apid (e.g. LG_CCSDS_APID_SSDV). 0 = queued, -1 = too old or never sent */
 int radio_resend(uint16_t apid, uint16_t sequence_count);

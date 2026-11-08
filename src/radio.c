@@ -519,6 +519,22 @@ int radio_receive(uint8_t *buffer, uint16_t max_length)
 {
     if (buffer == NULL || max_length == 0) return -1;
 
+    uint8_t packet[RADIO_MAX_PACKET_SIZE];
+    int packet_length = radio_receive_packet(packet, sizeof(packet));
+    if (packet_length <= 0) return packet_length;
+
+    lg_ccsds_profile_view_t view;
+    lg_ccsds_profile_parse(packet, (size_t)packet_length, &view); // already checked by the deframer
+    if (view.payload_length > max_length) return -1;
+
+    memcpy(buffer, view.payload, view.payload_length);
+    return (int)view.payload_length;
+}
+
+int radio_receive_packet(uint8_t *buffer, uint16_t max_length)
+{
+    if (buffer == NULL || max_length == 0) return -1;
+
     if (ensure_ready() != 0) return -1;
 
     pthread_mutex_lock(&rx_lock);
@@ -567,11 +583,8 @@ int radio_receive(uint8_t *buffer, uint16_t max_length)
         return -1;
     }
     if (packet_length == 0) return 0; // timed out, nothing heard
+    if (packet_length > max_length) return -1;
 
-    lg_ccsds_profile_view_t view;
-    lg_ccsds_profile_parse(packet, packet_length, &view); // already checked by the deframer
-    if (view.payload_length > max_length) return -1;
-
-    memcpy(buffer, view.payload, view.payload_length);
-    return (int)view.payload_length;
+    memcpy(buffer, packet, packet_length);
+    return (int)packet_length;
 }
