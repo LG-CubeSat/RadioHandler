@@ -45,37 +45,58 @@ target_link_libraries(RadioHandler_common PUBLIC
     Threads::Threads
 )
 
-# Real E22 hardware driver (requires Linux GPIO chardev, termios, and pigpiod_if2)
+# Linux controls the Pi GPIOs; macOS uses a preconfigured radio over USB serial.
 if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
     find_path(PIGPIOD_IF2_INCLUDE_DIR NAMES pigpiod_if2.h)
     find_library(PIGPIOD_IF2_LIBRARY NAMES pigpiod_if2)
-    if(PIGPIOD_IF2_INCLUDE_DIR AND PIGPIOD_IF2_LIBRARY)
-        add_library(RadioHandler STATIC
-            src/radio.c
-            include/radio.h
-        )
-        add_library(RadioHandler::RadioHandler ALIAS RadioHandler)
+endif()
 
-        target_compile_features(RadioHandler PRIVATE c_std_11)
-        target_compile_definitions(RadioHandler PRIVATE
-            _DEFAULT_SOURCE
-            _POSIX_C_SOURCE=200809L
-        )
-        target_include_directories(RadioHandler
-            PUBLIC
-                "${CMAKE_CURRENT_SOURCE_DIR}/include"
-            PRIVATE
-                "${PIGPIOD_IF2_INCLUDE_DIR}"
-        )
-        target_link_libraries(RadioHandler
-            PUBLIC
-                RadioHandler_common
-            PRIVATE
-                "${PIGPIOD_IF2_LIBRARY}"
-        )
+if(APPLE OR (CMAKE_SYSTEM_NAME STREQUAL "Linux" AND
+             PIGPIOD_IF2_INCLUDE_DIR AND PIGPIOD_IF2_LIBRARY))
+    add_library(RadioHandler STATIC
+        src/radio.c
+        include/radio.h
+    )
+    add_library(RadioHandler::RadioHandler ALIAS RadioHandler)
+
+    target_compile_features(RadioHandler PRIVATE c_std_11)
+    target_compile_definitions(RadioHandler PRIVATE
+        _DEFAULT_SOURCE
+        _POSIX_C_SOURCE=200809L
+    )
+    target_include_directories(RadioHandler
+        PUBLIC
+            "${CMAKE_CURRENT_SOURCE_DIR}/include"
+    )
+    target_link_libraries(RadioHandler PUBLIC RadioHandler_common)
+    if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
+        target_include_directories(RadioHandler PRIVATE "${PIGPIOD_IF2_INCLUDE_DIR}")
+        target_link_libraries(RadioHandler PRIVATE "${PIGPIOD_IF2_LIBRARY}")
     else()
-        message(STATUS "pigpiod_if2 not found: RadioHandler hardware driver disabled.")
+        target_compile_definitions(RadioHandler PRIVATE _DARWIN_C_SOURCE)
     endif()
+elseif(CMAKE_SYSTEM_NAME STREQUAL "Linux")
+    message(STATUS "pigpiod_if2 not found: RadioHandler hardware driver disabled.")
 else()
-    message(STATUS "Non-Linux system (${CMAKE_SYSTEM_NAME}): RadioHandler hardware driver disabled.")
+    message(STATUS "Unsupported system (${CMAKE_SYSTEM_NAME}): RadioHandler hardware driver disabled.")
+endif()
+
+if(CMAKE_CURRENT_SOURCE_DIR STREQUAL CMAKE_SOURCE_DIR)
+    include(CTest)
+endif()
+if(BUILD_TESTING AND APPLE AND CMAKE_CURRENT_SOURCE_DIR STREQUAL CMAKE_SOURCE_DIR)
+    add_executable(radio_serial_test tests/radio_serial_test.c)
+    target_link_libraries(radio_serial_test PRIVATE RadioHandler)
+    foreach(case IN ITEMS roundtrip missing-device invalid-device swapped-uart invalid-delay)
+        add_test(NAME radio_serial_${case} COMMAND radio_serial_test ${case})
+        set_tests_properties(radio_serial_${case} PROPERTIES TIMEOUT 15)
+    endforeach()
+    set_tests_properties(radio_serial_missing-device PROPERTIES
+        PASS_REGULAR_EXPRESSION "set E22_UART_DEVICE")
+    set_tests_properties(radio_serial_invalid-device PROPERTIES
+        PASS_REGULAR_EXPRESSION "open uart")
+    set_tests_properties(radio_serial_swapped-uart PROPERTIES
+        PASS_REGULAR_EXPRESSION "E22_SWAPPED_UART requires Linux")
+    set_tests_properties(radio_serial_invalid-delay PROPERTIES
+        PASS_REGULAR_EXPRESSION "E22_TX_DELAY_MS must be between")
 endif()

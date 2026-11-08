@@ -2,17 +2,19 @@
 #include "radio_deframer.h"
 #include "radio_queue.h"
 
-#include <pigpiod_if2.h>
 #include <errno.h>
 #include <fcntl.h>
+#if defined(__linux__)
+#include <pigpiod_if2.h>
 #include <linux/gpio.h>
+#include <sys/ioctl.h>
+#endif
 #include <poll.h>
 #include <pthread.h>
 #include <stdatomic.h>
 #include <stdint.h>
 #include <stdio.h>
 #include <string.h>
-#include <sys/ioctl.h>
 #include <termios.h>
 #include <time.h>
 #include <unistd.h>
@@ -23,6 +25,8 @@ real e22-400t30d (433 mhz) over uart in normal (transparent) mode.
 m0 + m1 low = normal mode. aux high = idle, aux low = busy.
 gpio uses the linux gpio chardev directly, no libgpiod needed.
 pins from the obc schematic (pi zero 2 w).
+on macOS, E22_UART_DEVICE selects a USB serial adapter connected to a
+preconfigured module with m0 + m1 held low. GPIO and swapped UART are Linux only.
 radio_send queues into radio_queue.c, its tx thread frames each chunk in ccsds and calls send_packet.
 radio_receive pulls whole ccsds packets out of the uart stream with radio_deframer.c.
 */
@@ -57,14 +61,19 @@ static pthread_mutex_t init_lock = PTHREAD_MUTEX_INITIALIZER;
 static pthread_mutex_t tx_lock = PTHREAD_MUTEX_INITIALIZER; // keeps two senders' packets from interleaving
 static pthread_mutex_t rx_lock = PTHREAD_MUTEX_INITIALIZER;
 static int uart_fd = -1;
+#if defined(__linux__)
 static int mode_fd = -1; // m0 + m1
 static int aux_fd = -1;
+#else
+static int tx_delay_ms = 1000; // no AUX on USB serial; allow the radio time to transmit
+#endif
 static atomic_int ready = 0;
 static int init_attempted = 0;
 static long last_init_ms = 0;
 static radio_deframer_t rx_deframer; // holds a partial packet between radio_receive calls
 
-/* 
+#if defined(__linux__)
+/*
 so the UART on the first OBC is swapped where TX->TX and RX->RX. 
 Meaning pins 14/15 need to be switched in SW
 Below it makes it so if its zero, keep /dev/serial0 which is normal.
@@ -78,6 +87,7 @@ One should note that GPIO14 is normally TX and GPIO15 is normally RX.
 static int swapped_uart = 0;
 static int pigpio_pi = -1;
 static int soft_rx_open = 0;
+#endif
 
 static long now_ms(void)
 {
@@ -94,6 +104,7 @@ static void sleep_ms(int ms)
 
 static int open_uart(void)
 {
+#if defined(__linux__)
     if (swapped_uart) {
         pigpio_pi = pigpio_start(NULL, NULL);
         if (pigpio_pi < 0) return -1;
@@ -109,10 +120,26 @@ static int open_uart(void)
         soft_rx_open = 1;
         return 0;
     }
+#endif
 
-    uart_fd = open(RADIO_UART_DEVICE, O_RDWR | O_NOCTTY);
+    const char *device = getenv("E22_UART_DEVICE");
+#if defined(__linux__)
+    if (device == NULL || device[0] == '\0') device = RADIO_UART_DEVICE;
+#else
+    if (device == NULL || device[0] == '\0') {
+        fprintf(stderr, "[RADIO] set E22_UART_DEVICE to the USB serial device (e.g. /dev/cu.usbserial-...)\n");
+        return -1;
+    }
+#endif
+    // Nonblocking open avoids waiting for a modem carrier on macOS callout devices.
+    uart_fd = open(device, O_RDWR | O_NOCTTY | O_NONBLOCK);
     if (uart_fd < 0) {
         perror("[RADIO] open uart");
+        return -1;
+    }
+    int flags = fcntl(uart_fd, F_GETFL);
+    if (flags < 0 || fcntl(uart_fd, F_SETFL, flags & ~O_NONBLOCK) < 0) {
+        perror("[RADIO] uart flags");
         return -1;
     }
 
@@ -138,6 +165,7 @@ static int open_uart(void)
     return 0;
 }
 
+#if defined(__linux__)
 static int request_lines(int chip_fd, const unsigned int *pins, unsigned int count, uint64_t flags)
 {
     struct gpio_v2_line_request req;
@@ -207,6 +235,7 @@ static int set_radio_mode(int m0, int m1)
     sleep_ms(MODE_SWITCH_MS);
     return 0;
 }
+#endif
 
 // returns 1 for a byte, 0 for a timeout, -1 for an error
 static int uart_read_byte(uint8_t *byte, int timeout_ms)
@@ -214,6 +243,7 @@ static int uart_read_byte(uint8_t *byte, int timeout_ms)
     long deadline = now_ms() + timeout_ms;
 
     for (;;) {
+#if defined(__linux__)
         if (swapped_uart) {
             int n = bb_serial_read(pigpio_pi, RADIO_SOFT_RX, byte, 1);
             if (n < 0) return -1;
@@ -222,6 +252,7 @@ static int uart_read_byte(uint8_t *byte, int timeout_ms)
             sleep_ms(1);
             continue;
         }
+#endif
 
         int remaining = (int)(deadline - now_ms());
         if (remaining <= 0) return 0;
@@ -243,6 +274,7 @@ static int uart_read_byte(uint8_t *byte, int timeout_ms)
     }
 }
 
+#if defined(__linux__)
 static int read_exact(uint8_t *buf, size_t length, int timeout_ms)
 {
     long deadline = now_ms() + timeout_ms;
@@ -302,10 +334,13 @@ static int configure_radio(void)
     }
     return ok ? 0 : -1;
 }
+#endif
 
 static void close_all(void)
 {
     if (uart_fd >= 0) close(uart_fd);
+    uart_fd = -1;
+#if defined(__linux__)
     if (mode_fd >= 0) close(mode_fd);
     if (aux_fd >= 0) close(aux_fd);
     uart_fd = mode_fd = aux_fd = -1;
@@ -318,16 +353,38 @@ static void close_all(void)
         pigpio_stop(pigpio_pi);
         pigpio_pi = -1;
     }
+#endif
 }
 
 static int radio_init(void)
 {
+#if defined(__linux__)
     // check if we need to swap the UART. OBC V1 needs this.
     const char *value = getenv("E22_SWAPPED_UART");
     swapped_uart = value && strcmp(value, "1") == 0;
 
     // configure_radio leaves the module in normal mode on success
     if (open_gpio() != 0 || open_uart() != 0 || configure_radio() != 0) {
+#else
+    const char *swapped = getenv("E22_SWAPPED_UART");
+    if (swapped && strcmp(swapped, "1") == 0) {
+        fprintf(stderr, "[RADIO] E22_SWAPPED_UART requires Linux and pigpio\n");
+        return -1;
+    }
+    const char *delay = getenv("E22_TX_DELAY_MS");
+    tx_delay_ms = 1000;
+    if (delay) {
+        char *end;
+        errno = 0;
+        long parsed = strtol(delay, &end, 10);
+        if (errno || end == delay || *end != '\0' || parsed < 0 || parsed > 60000) {
+            fprintf(stderr, "[RADIO] E22_TX_DELAY_MS must be between 0 and 60000\n");
+            return -1;
+        }
+        tx_delay_ms = (int)parsed;
+    }
+    if (open_uart() != 0) {
+#endif
         close_all(); // don't leak half-opened fds into the next attempt
         return -1;
     }
@@ -361,6 +418,7 @@ static int ensure_ready(void)
 
 static int write_all(const uint8_t *data, size_t length)
 {
+#if defined(__linux__)
     if (swapped_uart) {
         if (length == 0) return 0;
 
@@ -389,6 +447,7 @@ static int write_all(const uint8_t *data, size_t length)
         if (wave_delete(pigpio_pi, wave) < 0) result = -1;
         return result < 0 ? -1 : 0;
     }
+#endif
 
     size_t written = 0;
     while (written < length) {
@@ -398,6 +457,7 @@ static int write_all(const uint8_t *data, size_t length)
             perror("[RADIO] uart write");
             return -1;
         }
+        if (n == 0) return -1;
         written += (size_t)n;
     }
     return tcdrain(uart_fd); // wait until the pi's uart has actually shifted every byte out
@@ -411,6 +471,7 @@ static int send_packet(const uint8_t *data, size_t length)
     int result = 0;
     pthread_mutex_lock(&tx_lock);
 
+#if defined(__linux__)
     if (wait_for_aux(1, AUX_IDLE_TIMEOUT_MS) != 0 || write_all(data, length) != 0) {
         result = -1;
     } else {
@@ -426,8 +487,13 @@ static int send_packet(const uint8_t *data, size_t length)
         }
         sleep_ms(AUX_SETTLE_MS);
     }
+#else
+    result = write_all(data, length);
+    if (result == 0) sleep_ms(tx_delay_ms);
+#endif
 
     pthread_mutex_unlock(&tx_lock);
+    if (result != 0) atomic_store(&ready, 0); // retry by reopening after a disconnect
     return result;
 }
 
