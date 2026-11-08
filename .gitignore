@@ -1,0 +1,6 @@
+/build/
+
+# Local Alpine build environment
+/docker/
+/scripts/alpine
+/scripts/build-linux.sh

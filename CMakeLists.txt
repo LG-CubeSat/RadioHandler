@@ -4,6 +4,10 @@ project(RadioHandler LANGUAGES C)
 
 find_package(Threads REQUIRED)
 
+if(NOT TARGET ccsds AND NOT CCSDS_INCLUDE_DIRS)
+    add_subdirectory(ccsds)
+endif()
+
 add_library(RadioHandler_interface INTERFACE)
 target_include_directories(RadioHandler_interface INTERFACE
     "${CMAKE_CURRENT_SOURCE_DIR}/include"
