@@ -170,6 +170,7 @@ int radio_queue_push(lg_ccsds_content_type_t content, const uint8_t *data, size_
 {
     int bad_args = data == NULL || length == 0 || length > UINT32_MAX || send_packet == NULL ||
                    (unsigned)content >= CONTENT_TYPES ||
+                   (content == LG_CCSDS_CONTENT_COMMAND && length > RADIO_MAX_PAYLOAD) ||
                    (content == LG_CCSDS_CONTENT_SSDV && length % LG_CCSDS_SSDV_PACKET_SIZE != 0);
 
     pthread_mutex_lock(&lock);

@@ -19,7 +19,8 @@ so a long photo downlink doesn't block mission.
 /* driver function that puts one framed packet (<= RADIO_MAX_PACKET_SIZE) on the air. 0 = sent */
 typedef int (*radio_packet_sender_t)(const uint8_t *data, size_t length);
 
-/* 0 = queued. -1 = bad args, ssdv length not a multiple of 214, or not enough room (nothing queued) */
+/* 0 = queued. -1 = bad args, command exceeds RADIO_MAX_PAYLOAD, ssdv length not a multiple
+   of 214, or not enough room (nothing queued) */
 int radio_queue_push(lg_ccsds_content_type_t content, const uint8_t *data, size_t length,
                      radio_packet_sender_t send_packet);
 

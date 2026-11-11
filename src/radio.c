@@ -510,12 +510,33 @@ int radio_send(const uint8_t *data, size_t length)
     return queue(LG_CCSDS_CONTENT_RAW_TELEMETRY, data, length);
 }
 
+int radio_send_command(const uint8_t *data, size_t length)
+{
+    return queue(LG_CCSDS_CONTENT_COMMAND, data, length);
+}
+
 int radio_send_ssdv(const uint8_t *data, size_t length)
 {
     return queue(LG_CCSDS_CONTENT_SSDV, data, length);
 }
 
 int radio_receive(uint8_t *buffer, uint16_t max_length)
+{
+    if (buffer == NULL || max_length == 0) return -1;
+
+    uint8_t packet[RADIO_MAX_PACKET_SIZE];
+    int packet_length = radio_receive_packet(packet, sizeof(packet));
+    if (packet_length <= 0) return packet_length;
+
+    lg_ccsds_profile_view_t view;
+    lg_ccsds_profile_parse(packet, (size_t)packet_length, &view); // already checked by the deframer
+    if (view.payload_length > max_length) return -1;
+
+    memcpy(buffer, view.payload, view.payload_length);
+    return (int)view.payload_length;
+}
+
+int radio_receive_packet(uint8_t *buffer, uint16_t max_length)
 {
     if (buffer == NULL || max_length == 0) return -1;
 
@@ -567,11 +588,8 @@ int radio_receive(uint8_t *buffer, uint16_t max_length)
         return -1;
     }
     if (packet_length == 0) return 0; // timed out, nothing heard
+    if (packet_length > max_length) return -1;
 
-    lg_ccsds_profile_view_t view;
-    lg_ccsds_profile_parse(packet, packet_length, &view); // already checked by the deframer
-    if (view.payload_length > max_length) return -1;
-
-    memcpy(buffer, view.payload, view.payload_length);
-    return (int)view.payload_length;
+    memcpy(buffer, packet, packet_length);
+    return (int)packet_length;
 }
