@@ -4,6 +4,25 @@ project(RadioHandler LANGUAGES C)
 
 find_package(Threads REQUIRED)
 
+# Pure IQ processing; independent of the E22 driver.
+add_library(RadioHandler_dsp STATIC src/dsp.c)
+add_library(RadioHandler::dsp ALIAS RadioHandler_dsp)
+
+target_include_directories(RadioHandler_dsp PUBLIC
+    "${CMAKE_CURRENT_SOURCE_DIR}/include"
+)
+target_compile_features(RadioHandler_dsp PUBLIC c_std_11)
+
+if(UNIX AND NOT APPLE)
+    target_link_libraries(RadioHandler_dsp PUBLIC m)
+endif()
+
+if(CMAKE_C_COMPILER_ID MATCHES "GNU|Clang")
+    target_compile_options(RadioHandler_dsp PRIVATE
+        -Wall -Wextra -Wpedantic
+    )
+endif()
+
 if(NOT TARGET ccsds AND NOT CCSDS_INCLUDE_DIRS)
     add_subdirectory(ccsds)
 endif()
@@ -99,4 +118,17 @@ if(BUILD_TESTING AND APPLE AND CMAKE_CURRENT_SOURCE_DIR STREQUAL CMAKE_SOURCE_DI
         PASS_REGULAR_EXPRESSION "E22_SWAPPED_UART requires Linux")
     set_tests_properties(radio_serial_invalid-delay PROPERTIES
         PASS_REGULAR_EXPRESSION "E22_TX_DELAY_MS must be between")
+endif()
+
+if(BUILD_TESTING)
+    add_executable(test_dsp tests/test_dsp.c)
+    target_link_libraries(test_dsp PRIVATE RadioHandler::dsp)
+
+    if(CMAKE_C_COMPILER_ID MATCHES "GNU|Clang")
+        target_compile_options(test_dsp PRIVATE
+            -Wall -Wextra -Wpedantic
+        )
+    endif()
+
+    add_test(NAME dsp COMMAND test_dsp)
 endif()
