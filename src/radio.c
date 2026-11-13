@@ -279,13 +279,17 @@ static int read_exact(uint8_t *buf, size_t length, int timeout_ms)
 {
     long deadline = now_ms() + timeout_ms;
 
-    for (size_t got=0; got < length; ++got) {
+    size_t got = 0;
+    while (got < length) {
         int remaining = (int)(deadline - now_ms());
-        if (remaining <= 0) return -1;
+        if (remaining <= 0) break;
 
-        if (uart_read_byte(&buf[got], remaining) != 1) return -1;
+        int result = uart_read_byte(&buf[got], remaining);
+        if (result < 0) return -1;
+        if (result == 0) break;
+        got++;
     }
-    return 0;
+    return (int)got;
 }
 
 static int write_all(const uint8_t *data, size_t length);
@@ -320,13 +324,29 @@ static int configure_radio(void)
         return -1;
     }
 
-    int ok = uart_flush_input() == 0 &&
-            write_all(command, sizeof(command)) == 0 &&
-            read_exact(reply, sizeof(reply), CONFIG_REPLY_TIMEOUT_MS) == 0 &&
-            reply[0] == CONFIG_REPLY &&
-            memcmp(reply + 1, command + 1, 9) == 0; // address, length, settings. key reads back as 0 anyway
-            
-    if (!ok) fprintf(stderr, "[RADIO] e22 didn't confirm config\n");
+    int ok = 0;
+    if (uart_flush_input() != 0) {
+        fprintf(stderr, "[RADIO] could not clear E22 UART input before config\n");
+    } else if (write_all(command, sizeof(command)) != 0) {
+        fprintf(stderr, "[RADIO] could not send E22 config command\n");
+    } else {
+        int received = read_exact(reply, sizeof(reply), CONFIG_REPLY_TIMEOUT_MS);
+        if (received < 0) {
+            fprintf(stderr, "[RADIO] E22 config reply read failed\n");
+        } else if (received != (int)sizeof(reply)) {
+            fprintf(stderr, "[RADIO] E22 config reply timed out after %d/%zu bytes\n",
+                    received, sizeof(reply));
+        } else if (reply[0] != CONFIG_REPLY ||
+                   memcmp(reply + 1, command + 1, 9) != 0) {
+            fprintf(stderr, "[RADIO] E22 config reply mismatch:");
+            for (size_t i = 0; i < sizeof(reply); i++) {
+                fprintf(stderr, " %02x", reply[i]);
+            }
+            fputc('\n', stderr);
+        } else {
+            ok = 1; // address, length, settings; key reads back as zero
+        }
+    }
 
     if (set_radio_mode(0, 0) != 0) {
         fprintf(stderr, "[RADIO] couldn't return to normal mode\n");
