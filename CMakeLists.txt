@@ -134,4 +134,9 @@ if(BUILD_TESTING)
     endif()
 
     add_test(NAME dsp COMMAND test_dsp)
+
+    add_executable(test_iq_adapter tests/test_iq_adapter.c)
+    target_link_libraries(test_iq_adapter PRIVATE RadioHandler::dsp)
+    add_test(NAME iq_adapter COMMAND test_iq_adapter)   
+    
 endif()
