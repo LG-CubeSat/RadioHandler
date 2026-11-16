@@ -107,14 +107,31 @@ static int open_uart(void)
 #if defined(__linux__)
     if (swapped_uart) {
         pigpio_pi = pigpio_start(NULL, NULL);
-        if (pigpio_pi < 0) return -1;
+        if (pigpio_pi < 0) {
+            fprintf(stderr, "[RADIO] pigpio connection failed: %d\n", pigpio_pi);
+            return -1;
+        }
 
-        if (set_mode(pigpio_pi, RADIO_SOFT_RX, PI_INPUT) < 0 ||
-            set_pull_up_down(pigpio_pi, RADIO_SOFT_RX, PI_PUD_UP) < 0 ||
-            set_mode(pigpio_pi, RADIO_SOFT_TX, PI_OUTPUT) < 0 ||
-            gpio_write(pigpio_pi, RADIO_SOFT_TX, 1) < 0 ||
-            bb_serial_read_open(pigpio_pi, RADIO_SOFT_RX, RADIO_BAUD_RATE, 8) < 0) {
-            return -1; // radio_init() already calls close all on failures.
+        int rc;
+        if ((rc = set_mode(pigpio_pi, RADIO_SOFT_RX, PI_INPUT)) < 0) {
+            fprintf(stderr, "[RADIO] GPIO14 RX input mode failed: %d\n", rc);
+            return -1;
+        }
+        if ((rc = set_pull_up_down(pigpio_pi, RADIO_SOFT_RX, PI_PUD_UP)) < 0) {
+            fprintf(stderr, "[RADIO] GPIO14 RX pull-up failed: %d\n", rc);
+            return -1;
+        }
+        if ((rc = set_mode(pigpio_pi, RADIO_SOFT_TX, PI_OUTPUT)) < 0) {
+            fprintf(stderr, "[RADIO] GPIO15 TX output mode failed: %d\n", rc);
+            return -1;
+        }
+        if ((rc = gpio_write(pigpio_pi, RADIO_SOFT_TX, 1)) < 0) {
+            fprintf(stderr, "[RADIO] GPIO15 TX idle-high write failed: %d\n", rc);
+            return -1;
+        }
+        if ((rc = bb_serial_read_open(pigpio_pi, RADIO_SOFT_RX, RADIO_BAUD_RATE, 8)) < 0) {
+            fprintf(stderr, "[RADIO] GPIO14 bit-banged serial RX open failed: %d\n", rc);
+            return -1;
         }
 
         soft_rx_open = 1;
@@ -213,7 +230,10 @@ static int open_gpio(void)
     const unsigned int mode_pins[] = { RADIO_PIN_M0, RADIO_PIN_M1 };
     const unsigned int aux_pins[] = { RADIO_PIN_AUX };
     mode_fd = request_lines(chip_fd, mode_pins, 2, GPIO_V2_LINE_FLAG_OUTPUT);
-    aux_fd = request_lines(chip_fd, aux_pins, 1, GPIO_V2_LINE_FLAG_INPUT);
+    // AUX is driven by the E22. Clear any pull left on GPIO25 by a previous
+    // process so the Pi does not bias the module's status output.
+    aux_fd = request_lines(chip_fd, aux_pins, 1,
+                           GPIO_V2_LINE_FLAG_INPUT | GPIO_V2_LINE_FLAG_BIAS_DISABLED);
     close(chip_fd); // line fds stay valid without the chip fd
 
     if (mode_fd < 0 || aux_fd < 0) return -1;
