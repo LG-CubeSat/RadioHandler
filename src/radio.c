@@ -42,7 +42,7 @@ radio_receive pulls whole ccsds packets out of the uart stream with radio_defram
 #define AUX_BUSY_WAIT_MS 50      // time for aux to drop after we hand it bytes
 #define AUX_SETTLE_MS 5          // aux high = buffer empty, not always rf done. small gap before next packet
 #define RX_TIMEOUT_MS 1000
-#define RX_GAP_MS 20             // uart quiet this long mid packet = packet broke
+#define RX_GAP_MS 100            // E22 UART delivers 32-byte bursts with ~33ms gaps on this link
 #define RX_PACKET_MAX_MS 500     // 240 bytes at 9600 baud is ~250ms of extra time once a packet starts
 #define INIT_RETRY_MS 1000       // don't hammer a missing module with reinit attempts
 
