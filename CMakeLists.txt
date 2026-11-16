@@ -5,7 +5,10 @@ project(RadioHandler LANGUAGES C)
 find_package(Threads REQUIRED)
 
 # Pure IQ processing; independent of the E22 driver.
-add_library(RadioHandler_dsp STATIC src/dsp.c)
+add_library(RadioHandler_dsp STATIC 
+    src/dsp.c
+    src/iq_adapter.c
+)
 add_library(RadioHandler::dsp ALIAS RadioHandler_dsp)
 
 target_include_directories(RadioHandler_dsp PUBLIC
