@@ -8,6 +8,7 @@ find_package(Threads REQUIRED)
 add_library(RadioHandler_dsp STATIC 
     src/dsp.c
     src/iq_adapter.c
+    src/iq_pipeline.c
 )
 add_library(RadioHandler::dsp ALIAS RadioHandler_dsp)
 
