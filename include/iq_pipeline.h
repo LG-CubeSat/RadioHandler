@@ -24,5 +24,6 @@ typedef enum {
 
 int32_t iq_pipeline_init(iq_pipeline_state_t *state, double sample_rate_hz, double bandwidth_hz, size_t tap_count, double cutoff_frequency_hz, bool dsp_enabled);
 int32_t iq_pipeline_process(iq_pipeline_state_t *state, const uint8_t *input_bytes, size_t input_byte_count, float complex *output_samples, size_t output_capacity, size_t *samples_written, float frequency_offset_hz);
+int32_t iq_pipeline_set_enabled(iq_pipeline_state_t *state, bool enabled);
 
 #endif

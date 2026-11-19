@@ -40,3 +40,21 @@ int32_t iq_pipeline_process(iq_pipeline_state_t *state, const uint8_t *input_byt
 
     return IQ_PIPELINE_OK;
 }
+
+int32_t iq_pipeline_set_enabled(iq_pipeline_state_t *state , bool enabled){
+
+    if (state == NULL) return IQ_PIPELINE_ERROR_NULL;
+    if (state->dsp_enabled == enabled) return IQ_PIPELINE_OK;
+    
+    if (enabled) {
+        for (size_t i = 0; i < DSP_MAX_TAPS; i++){
+            state->dsp.history[i]= 0.0;
+        }
+        state->dsp.shift_phase = 0.0;
+    }
+
+    state->dsp_enabled = enabled;
+
+    return IQ_PIPELINE_OK;
+
+}
