@@ -139,5 +139,9 @@ if(BUILD_TESTING)
     add_executable(test_iq_adapter tests/test_iq_adapter.c)
     target_link_libraries(test_iq_adapter PRIVATE RadioHandler::dsp)
     add_test(NAME iq_adapter COMMAND test_iq_adapter)   
+
+    add_executable(test_iq_pipeline tests/test_iq_pipeline.c)
+    target_link_libraries(test_iq_pipeline PRIVATE RadioHandler::dsp)
+    add_test(NAME iq_pipeline COMMAND test_iq_pipeline)
     
 endif()
