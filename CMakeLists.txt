@@ -21,6 +21,41 @@ if(UNIX AND NOT APPLE)
     target_link_libraries(RadioHandler_dsp PUBLIC m)
 endif()
 
+find_package(PkgConfig QUIET)
+
+if(PkgConfig_FOUND)
+    pkg_check_modules(RTLSDR QUIET IMPORTED_TARGET librtlsdr)
+endif()
+
+if(TARGET PkgConfig::RTLSDR)
+    add_library(RadioHandler_rtl_capture STATIC src/rtl_capture.c)
+    add_library(RadioHandler::rtl_capture ALIAS RadioHandler_rtl_capture)
+    target_include_directories(RadioHandler_rtl_capture PUBLIC
+        "${CMAKE_CURRENT_SOURCE_DIR}/include"
+    )
+    target_compile_features(RadioHandler_rtl_capture PUBLIC c_std_11)
+    target_compile_definitions(RadioHandler_rtl_capture PRIVATE _POSIX_C_SOURCE=200809L)
+    target_link_libraries(RadioHandler_rtl_capture PUBLIC PkgConfig::RTLSDR Threads::Threads)
+    if(CMAKE_C_COMPILER_ID MATCHES "GNU|Clang")
+        target_compile_options(RadioHandler_rtl_capture PRIVATE -Wall -Wextra -Wpedantic)
+    endif()
+
+    add_library(RadioHandler_rtl_iq_bridge STATIC src/rtl_iq_bridge.c)
+    add_library(RadioHandler::rtl_iq_bridge ALIAS RadioHandler_rtl_iq_bridge)
+    target_include_directories(RadioHandler_rtl_iq_bridge PUBLIC
+        "${CMAKE_CURRENT_SOURCE_DIR}/include"
+    )
+    target_compile_features(RadioHandler_rtl_iq_bridge PUBLIC c_std_11)
+    target_link_libraries(RadioHandler_rtl_iq_bridge PUBLIC
+        RadioHandler::rtl_capture RadioHandler::dsp
+    )
+    if(CMAKE_C_COMPILER_ID MATCHES "GNU|Clang")
+        target_compile_options(RadioHandler_rtl_iq_bridge PRIVATE -Wall -Wextra -Wpedantic)
+    endif()
+else()
+    message(STATUS "librtlsdr not found via pkg-config: RTL-SDR capture target disabled.")
+endif()
+
 if(CMAKE_C_COMPILER_ID MATCHES "GNU|Clang")
     target_compile_options(RadioHandler_dsp PRIVATE
         -Wall -Wextra -Wpedantic
