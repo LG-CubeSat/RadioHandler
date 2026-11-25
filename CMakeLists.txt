@@ -4,6 +4,64 @@ project(RadioHandler LANGUAGES C)
 
 find_package(Threads REQUIRED)
 
+# Pure IQ processing; independent of the E22 driver.
+add_library(RadioHandler_dsp STATIC 
+    src/dsp.c
+    src/iq_adapter.c
+    src/iq_pipeline.c
+)
+add_library(RadioHandler::dsp ALIAS RadioHandler_dsp)
+
+target_include_directories(RadioHandler_dsp PUBLIC
+    "${CMAKE_CURRENT_SOURCE_DIR}/include"
+)
+target_compile_features(RadioHandler_dsp PUBLIC c_std_11)
+
+if(UNIX AND NOT APPLE)
+    target_link_libraries(RadioHandler_dsp PUBLIC m)
+endif()
+
+find_package(PkgConfig QUIET)
+
+if(PkgConfig_FOUND)
+    pkg_check_modules(RTLSDR QUIET IMPORTED_TARGET librtlsdr)
+endif()
+
+if(TARGET PkgConfig::RTLSDR)
+    add_library(RadioHandler_rtl_capture STATIC src/rtl_capture.c)
+    add_library(RadioHandler::rtl_capture ALIAS RadioHandler_rtl_capture)
+    target_include_directories(RadioHandler_rtl_capture PUBLIC
+        "${CMAKE_CURRENT_SOURCE_DIR}/include"
+    )
+    target_compile_features(RadioHandler_rtl_capture PUBLIC c_std_11)
+    target_compile_definitions(RadioHandler_rtl_capture PRIVATE _POSIX_C_SOURCE=200809L)
+    target_link_libraries(RadioHandler_rtl_capture PUBLIC PkgConfig::RTLSDR Threads::Threads)
+    if(CMAKE_C_COMPILER_ID MATCHES "GNU|Clang")
+        target_compile_options(RadioHandler_rtl_capture PRIVATE -Wall -Wextra -Wpedantic)
+    endif()
+
+    add_library(RadioHandler_rtl_iq_bridge STATIC src/rtl_iq_bridge.c)
+    add_library(RadioHandler::rtl_iq_bridge ALIAS RadioHandler_rtl_iq_bridge)
+    target_include_directories(RadioHandler_rtl_iq_bridge PUBLIC
+        "${CMAKE_CURRENT_SOURCE_DIR}/include"
+    )
+    target_compile_features(RadioHandler_rtl_iq_bridge PUBLIC c_std_11)
+    target_link_libraries(RadioHandler_rtl_iq_bridge PUBLIC
+        RadioHandler::rtl_capture RadioHandler::dsp
+    )
+    if(CMAKE_C_COMPILER_ID MATCHES "GNU|Clang")
+        target_compile_options(RadioHandler_rtl_iq_bridge PRIVATE -Wall -Wextra -Wpedantic)
+    endif()
+else()
+    message(STATUS "librtlsdr not found via pkg-config: RTL-SDR capture target disabled.")
+endif()
+
+if(CMAKE_C_COMPILER_ID MATCHES "GNU|Clang")
+    target_compile_options(RadioHandler_dsp PRIVATE
+        -Wall -Wextra -Wpedantic
+    )
+endif()
+
 if(NOT TARGET ccsds AND NOT CCSDS_INCLUDE_DIRS)
     add_subdirectory(ccsds)
 endif()
@@ -99,4 +157,26 @@ if(BUILD_TESTING AND APPLE AND CMAKE_CURRENT_SOURCE_DIR STREQUAL CMAKE_SOURCE_DI
         PASS_REGULAR_EXPRESSION "E22_SWAPPED_UART requires Linux")
     set_tests_properties(radio_serial_invalid-delay PROPERTIES
         PASS_REGULAR_EXPRESSION "E22_TX_DELAY_MS must be between")
+endif()
+
+if(BUILD_TESTING)
+    add_executable(test_dsp tests/test_dsp.c)
+    target_link_libraries(test_dsp PRIVATE RadioHandler::dsp)
+
+    if(CMAKE_C_COMPILER_ID MATCHES "GNU|Clang")
+        target_compile_options(test_dsp PRIVATE
+            -Wall -Wextra -Wpedantic
+        )
+    endif()
+
+    add_test(NAME dsp COMMAND test_dsp)
+
+    add_executable(test_iq_adapter tests/test_iq_adapter.c)
+    target_link_libraries(test_iq_adapter PRIVATE RadioHandler::dsp)
+    add_test(NAME iq_adapter COMMAND test_iq_adapter)   
+
+    add_executable(test_iq_pipeline tests/test_iq_pipeline.c)
+    target_link_libraries(test_iq_pipeline PRIVATE RadioHandler::dsp)
+    add_test(NAME iq_pipeline COMMAND test_iq_pipeline)
+    
 endif()
